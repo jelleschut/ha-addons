@@ -1,5 +1,5 @@
 name: WakeWeather
-version: "1.0.0"
+version: "1.0.1"
 slug: wake_weather
 description: Weersvoorspelling app voor wakeboarden / kabelbanen
 url: https://github.com/jelleschut/ha-addons
