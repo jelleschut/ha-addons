@@ -1,0 +1,80 @@
+name: Release WakeWeather
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "wake-weather/**"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read current version
+        id: read_version
+        run: |
+          VERSION=$(grep '^version:' wake-weather/config.yaml | sed 's/version: *"\(.*\)"/\1/')
+          echo "current=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Bump patch version
+        id: bump_version
+        run: |
+          CURRENT="${{ steps.read_version.outputs.current }}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          NEW_PATCH=$((PATCH + 1))
+          NEW_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
+          echo "new=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Update version in config.yaml
+        run: |
+          sed -i "s/^version: .*/version: \"${{ steps.bump_version.outputs.new }}\"/" wake-weather/config.yaml
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: wake-weather
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ghcr.io/jelleschut/wake-weather-aarch64:${{ steps.bump_version.outputs.new }}
+            ghcr.io/jelleschut/wake-weather-aarch64:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Commit version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add wake-weather/config.yaml
+          git commit -m "chore: bump wake-weather to ${{ steps.bump_version.outputs.new }}"
+          git push
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: wake-weather-${{ steps.bump_version.outputs.new }}
+          name: "WakeWeather ${{ steps.bump_version.outputs.new }}"
+          generate_release_notes: true

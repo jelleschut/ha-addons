@@ -1,0 +1,18 @@
+@if (Opening is null)
+{
+    <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Outlined">Onbekend</MudChip>
+}
+else if (Opening.IsOpen)
+{
+    <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Filled">
+        Open @Opening.OpenTime?.ToString("HH:mm")–@Opening.CloseTime?.ToString("HH:mm")
+    </MudChip>
+}
+else
+{
+    <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Outlined">Gesloten</MudChip>
+}
+
+@code {
+    [Parameter] public OpeningDayDto? Opening { get; set; }
+}

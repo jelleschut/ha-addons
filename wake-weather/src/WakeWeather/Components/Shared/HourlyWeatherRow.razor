@@ -1,0 +1,39 @@
+<div class="py-2" style="border-top: 1px solid var(--mud-palette-divider);">
+    <div class="d-flex align-center justify-space-between mb-1">
+        <MudText Typo="Typo.body2"><b>@Hour.Time.ToString("HH:mm")</b></MudText>
+        <WakeScoreBadge Score="@Hour.WakeScore"/>
+    </div>
+    <MudGrid Spacing="1">
+        <MudItem xs="6">
+            <div class="d-flex align-center gap-1">
+                <MudIcon Icon="@Icons.Material.Filled.Thermostat" Size="Size.Small" Color="Color.Warning"/>
+                <MudText Typo="Typo.body2">@Hour.Temperature°C</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">(@Hour.FeelsLike°C)</MudText>
+            </div>
+        </MudItem>
+        <MudItem xs="6">
+            <div class="d-flex align-center gap-1">
+                <MudIcon Icon="@Icons.Material.Filled.Air" Size="Size.Small" Color="Color.Info"/>
+                <MudText Typo="Typo.body2">@WindHelper.Beaufort(Hour.WindSpeedKmh) @WindHelper.DirectionLabel(Hour.WindDirectionDeg)</MudText>
+            </div>
+        </MudItem>
+        <MudItem xs="6">
+            <div class="d-flex align-center gap-1">
+                <MudIcon Icon="@Icons.Material.Filled.WaterDrop" Size="Size.Small" Color="Color.Primary"/>
+                <MudText Typo="Typo.body2">@Hour.PrecipitationMm mm</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">@Hour.PrecipitationProbability%</MudText>
+            </div>
+        </MudItem>
+        <MudItem xs="6">
+            <div class="d-flex align-center gap-1">
+                <MudIcon Icon="@Icons.Material.Filled.Cloud" Size="Size.Small"/>
+                <MudText Typo="Typo.body2">@Hour.CloudCoverPercent%</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">bewolking</MudText>
+            </div>
+        </MudItem>
+    </MudGrid>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public HourlyWeatherDto Hour { get; set; } = null!;
+}

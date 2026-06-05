@@ -1,6 +1,13 @@
 # .NET build output
 ha-shopping-list/src/**/bin/
 ha-shopping-list/src/**/obj/
+wake-weather/src/**/bin/
+wake-weather/src/**/obj/
+
+# Angular
+wake-weather/src/**/node_modules/
+wake-weather/src/**/dist/
+wake-weather/src/**/.angular/
 
 # User-specific files
 *.user

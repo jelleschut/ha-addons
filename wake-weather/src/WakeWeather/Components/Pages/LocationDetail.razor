@@ -1,0 +1,171 @@
+@page "/locatie/{Slug}"
+@inject WeatherApiClient Api
+@inject NavigationManager Nav
+
+<PageTitle>@(_location?.Name ?? "Locatie") — WakeWeather</PageTitle>
+
+@if (_loading)
+{
+    <MudSkeleton Height="40px" Class="mb-2"/>
+    <MudSkeleton Height="200px"/>
+}
+else if (_location is null)
+{
+    <MudAlert Severity="Severity.Error">Locatie niet gevonden.</MudAlert>
+}
+else
+{
+    <div class="d-flex align-center mb-1">
+        <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" OnClick="@(() => Nav.NavigateTo("/"))"/>
+        <MudText Typo="Typo.h6" Class="ml-1">@_location.Name</MudText>
+        <MudSpacer/>
+        <FavoriteButton LocationId="@_location.Id"/>
+    </div>
+    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-4 ml-10">@_location.City</MudText>
+
+    <MudText Typo="Typo.subtitle1" Class="mb-2"><b>Nu</b></MudText>
+    <MudPaper Elevation="1" Class="pa-3 mb-4 rounded-lg">
+        <WeatherSummary Weather="_weather?.Current"/>
+    </MudPaper>
+
+    @if (_weather?.Forecast is { Count: > 0 })
+    {
+        <MudText Typo="Typo.subtitle1" Class="mb-2"><b>Voorspelling</b></MudText>
+        @foreach (var day in _weather.Forecast)
+        {
+            var opening = _location.WeekOpening.FirstOrDefault(o => o.Date == day.Date);
+            var hasHourly = day.Date <= _hourlyThreshold;
+            <MudPaper Elevation="1" Class="pa-3 mb-2 rounded-lg">
+                <div class="d-flex align-center justify-space-between mb-2"
+                     style="@(hasHourly ? "cursor: pointer;" : "")"
+                     @onclick="() => ToggleDay(day.Date)">
+                    <div>
+                        <MudText Typo="Typo.body1"><b>@DayLabel(day.Date)</b></MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">@day.Date.ToString("dd MMM")</MudText>
+                    </div>
+                    <div class="d-flex align-center gap-1">
+                        <OpeningBadge Opening="@opening"/>
+                        <WakeScoreBadge Score="@day.WakeScore"/>
+                        @if (hasHourly)
+                        {
+                            <MudIcon Icon="@(_expandedDay == day.Date ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+                                     Size="Size.Small" Color="Color.Secondary"/>
+                        }
+                    </div>
+                </div>
+                <MudGrid Spacing="1">
+                    <MudItem xs="6">
+                        <div class="d-flex align-center gap-1">
+                            <MudIcon Icon="@Icons.Material.Filled.Thermostat" Size="Size.Small" Color="Color.Warning"/>
+                            <MudText Typo="Typo.body2">@day.TempMin° – @day.TempMax°C</MudText>
+                        </div>
+                    </MudItem>
+                    <MudItem xs="6">
+                        <div class="d-flex align-center gap-1">
+                            <MudIcon Icon="@Icons.Material.Filled.Air" Size="Size.Small" Color="Color.Info"/>
+                            <MudText Typo="Typo.body2">@WindHelper.Beaufort(day.AvgWindSpeedKmh)</MudText>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">(max @WindHelper.Beaufort(day.MaxWindSpeedKmh))</MudText>
+                        </div>
+                    </MudItem>
+                    <MudItem xs="6">
+                        <div class="d-flex align-center gap-1">
+                            <MudIcon Icon="@Icons.Material.Filled.WaterDrop" Size="Size.Small" Color="Color.Primary"/>
+                            <MudText Typo="Typo.body2">@day.PrecipitationSumMm mm</MudText>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">@day.MaxPrecipitationProbability%</MudText>
+                        </div>
+                    </MudItem>
+                    <MudItem xs="6">
+                        <div class="d-flex align-center gap-1">
+                            <MudIcon Icon="@Icons.Material.Filled.Cloud" Size="Size.Small"/>
+                            <MudText Typo="Typo.body2">@day.AvgCloudCoverPercent%</MudText>
+                        </div>
+                    </MudItem>
+                </MudGrid>
+                @if (hasHourly)
+                {
+                    <MudCollapse Expanded="@(_expandedDay == day.Date)">
+                        <div class="mt-2">
+                            @if (_hourlyCache.TryGetValue(day.Date, out var hours) && hours is not null)
+                            {
+                                @if (hours.Count == 0)
+                                {
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-1">Park is gesloten op deze dag.</MudText>
+                                }
+                                else
+                                {
+                                    @foreach (var hour in hours)
+                                    {
+                                        <HourlyWeatherRow Hour="@hour"/>
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="mt-2"/>
+                            }
+                        </div>
+                    </MudCollapse>
+                }
+            </MudPaper>
+        }
+    }
+
+    @if (_location.Website is not null)
+    {
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Href="@_location.Website"
+                   Target="_blank" StartIcon="@Icons.Material.Filled.OpenInNew" Class="mt-2" FullWidth="true">
+            Website
+        </MudButton>
+    }
+}
+
+@code {
+    [Parameter] public string Slug { get; set; } = string.Empty;
+
+    private LocationDetailDto? _location;
+    private WeatherResponse? _weather;
+    private bool _loading = true;
+    private DateOnly? _expandedDay;
+    private readonly Dictionary<DateOnly, List<HourlyWeatherDto>?> _hourlyCache = new();
+    private DateOnly _hourlyThreshold => DateOnly.FromDateTime(DateTime.Today).AddDays(4);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _location = await Api.GetLocationAsync(Slug);
+        if (_location is not null)
+            _weather = await Api.GetWeatherAsync(Slug);
+        _loading = false;
+    }
+
+    private async Task ToggleDay(DateOnly date)
+    {
+        if (date > _hourlyThreshold) return;
+
+        if (_expandedDay == date)
+        {
+            _expandedDay = null;
+            return;
+        }
+
+        _expandedDay = date;
+
+        if (!_hourlyCache.ContainsKey(date))
+        {
+            _hourlyCache[date] = null;
+            StateHasChanged();
+            var hours = await Api.GetHourlyWeatherAsync(_location!.Slug, date);
+            _hourlyCache[date] = hours ?? [];
+        }
+    }
+
+    private static string DayLabel(DateOnly date)
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        return (date.DayNumber - today.DayNumber) switch
+        {
+            0 => "Vandaag",
+            1 => "Morgen",
+            _ => date.ToString("ddd d MMM", new System.Globalization.CultureInfo("nl-NL"))
+        };
+    }
+}

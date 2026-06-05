@@ -1,0 +1,28 @@
+@inject FavoritesService Favorites
+
+<MudIconButton Icon="@(_isFavorite ? Icons.Material.Filled.Favorite : Icons.Material.Outlined.FavoriteBorder)"
+               Color="@(_isFavorite ? Color.Error : Color.Default)"
+               Size="Size.Medium"
+               OnClick="Toggle"
+               title="@(_isFavorite ? "Verwijder uit favorieten" : "Voeg toe aan favorieten")"/>
+
+@code {
+    [Parameter, EditorRequired] public int LocationId { get; set; }
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private bool _isFavorite;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        _isFavorite = await Favorites.IsFavoriteAsync(LocationId);
+        StateHasChanged();
+    }
+
+    private async Task Toggle()
+    {
+        await Favorites.ToggleAsync(LocationId);
+        _isFavorite = !_isFavorite;
+        await OnChanged.InvokeAsync();
+    }
+}

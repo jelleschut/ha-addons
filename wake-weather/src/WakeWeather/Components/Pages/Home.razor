@@ -1,0 +1,73 @@
+@page "/"
+@inject WeatherApiClient Api
+
+<PageTitle>WakeWeather</PageTitle>
+
+<div class="d-flex align-center justify-space-between mb-4">
+    <MudText Typo="Typo.h5">Kabelparken</MudText>
+    <MudToggleIconButton @bind-Toggled="_showFavoritesOnly"
+                         Icon="@Icons.Material.Outlined.FavoriteBorder"
+                         ToggledIcon="@Icons.Material.Filled.Favorite"
+                         Color="Color.Default"
+                         ToggledColor="Color.Error"
+                         title="Alleen favorieten"/>
+</div>
+
+@if (_loading)
+{
+    @for (var i = 0; i < 4; i++)
+    {
+        <MudCard Elevation="2" Class="mb-3" Style="border-radius: 16px;">
+            <MudCardContent>
+                <MudSkeleton Height="120px"/>
+            </MudCardContent>
+        </MudCard>
+    }
+}
+else if (_locations is null || _locations.Count == 0)
+{
+    <MudAlert Severity="Severity.Info">Geen locaties gevonden.</MudAlert>
+}
+else
+{
+    @foreach (var location in _visibleLocations)
+    {
+        <LocationCard @key="location.Id" Location="@location" OnFavoriteChanged="RefreshFavorites"/>
+    }
+    @if (_showFavoritesOnly && _visibleLocations.Count == 0)
+    {
+        <MudAlert Severity="Severity.Info">Je hebt nog geen favorieten.</MudAlert>
+    }
+}
+
+@code {
+    [Inject] private FavoritesService Favorites { get; set; } = null!;
+
+    private List<LocationSummaryDto>? _locations;
+    private HashSet<int> _favoriteIds = [];
+    private bool _loading = true;
+    private bool _showFavoritesOnly;
+
+    private List<LocationSummaryDto> _visibleLocations =>
+        _showFavoritesOnly
+            ? (_locations?.Where(l => _favoriteIds.Contains(l.Id)).ToList() ?? [])
+            : (_locations?.OrderBy(l => _favoriteIds.Contains(l.Id) ? 0 : 1).ThenBy(l => l.Name).ToList() ?? []);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _locations = await Api.GetLocationsAsync();
+        _loading = false;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        await RefreshFavorites();
+    }
+
+    private async Task RefreshFavorites()
+    {
+        _favoriteIds = await Favorites.GetAsync();
+        StateHasChanged();
+    }
+}

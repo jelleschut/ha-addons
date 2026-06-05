@@ -1,0 +1,15 @@
+name: WakeWeather
+version: "1.0.0"
+slug: wake_weather
+description: Weersvoorspelling app voor wakeboarden / kabelbanen
+url: https://github.com/jelleschut/ha-addons
+image: ghcr.io/jelleschut/wake-weather-{arch}
+arch:
+  - aarch64
+host_network: true
+ports:
+  8081/tcp: 8081
+ports_description:
+  8081/tcp: Web interface
+map:
+  - share:rw

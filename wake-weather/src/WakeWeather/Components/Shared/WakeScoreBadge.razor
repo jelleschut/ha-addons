@@ -1,0 +1,21 @@
+@if (Score.HasValue)
+{
+    <MudChip T="string" Color="Color.Default" Size="@Size" Variant="Variant.Filled" Class="px-2"
+             Style="@_chipStyle">
+        <MudIcon Icon="@Icons.Material.Filled.Surfing" Size="Size.Small" Class="mr-1"/>
+        @Score.Value.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)
+    </MudChip>
+}
+
+@code {
+    [Parameter, EditorRequired] public double? Score { get; set; }
+    [Parameter] public Size Size { get; set; } = Size.Small;
+
+    private string _chipStyle => Score switch
+    {
+        >= 8.0 => "background-color: #4CAF50; color: #fff;",
+        >= 6.0 => "background-color: #FFC107; color: #fff;",
+        >= 4.0 => "background-color: #FF9800; color: #fff;",
+        _      => "background-color: #F44336; color: #fff;"
+    };
+}

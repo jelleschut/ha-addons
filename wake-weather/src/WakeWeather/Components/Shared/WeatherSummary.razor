@@ -1,0 +1,41 @@
+@if (Weather is null)
+{
+    <MudSkeleton Height="80px" Class="rounded-lg"/>
+}
+else
+{
+    <MudGrid Spacing="2" Justify="Justify.FlexStart">
+        <MudItem xs="6">
+            <div class="d-flex align-center gap-1">
+                <MudIcon Icon="@Icons.Material.Filled.Thermostat" Size="Size.Small" Color="Color.Warning"/>
+                <MudText Typo="Typo.body1"><b>@Weather.Temperature°C</b></MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">(@Weather.FeelsLike°C)</MudText>
+            </div>
+        </MudItem>
+        <MudItem xs="6">
+            <div class="d-flex align-center gap-1">
+                <MudIcon Icon="@Icons.Material.Filled.Air" Size="Size.Small" Color="Color.Info"/>
+                <MudText Typo="Typo.body1"><b>@WindHelper.Beaufort(Weather.WindSpeedKmh) @WindHelper.DirectionLabel(Weather.WindDirectionDeg)</b></MudText>
+            </div>
+        </MudItem>
+        <MudItem xs="6">
+            <div class="d-flex align-center gap-1">
+                <MudIcon Icon="@Icons.Material.Filled.WaterDrop" Size="Size.Small" Color="Color.Primary"/>
+                <MudText Typo="Typo.body1"><b>@Weather.PrecipitationMm mm</b></MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">@Weather.PrecipitationProbability%</MudText>
+            </div>
+        </MudItem>
+        <MudItem xs="6">
+            <div class="d-flex align-center gap-1">
+                <MudIcon Icon="@Icons.Material.Filled.Cloud" Size="Size.Small" Color="Color.Default"/>
+                <MudText Typo="Typo.body1">@Weather.CloudCoverPercent%</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">bewolking</MudText>
+            </div>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    [Parameter, EditorRequired] public WeatherDto? Weather { get; set; }
+
+}
