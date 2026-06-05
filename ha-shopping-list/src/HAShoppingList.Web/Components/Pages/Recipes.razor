@@ -1,0 +1,226 @@
+@page "/recipes"
+@rendermode InteractiveServer
+@inject RecipeService RecipeService
+@inject ProductService ProductService
+@inject ShoppingListService ShoppingListService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject RecipeCheckedStateService CheckedState
+
+<PageTitle>Recepten</PageTitle>
+
+<MudText Typo="Typo.h5" Class="mb-1">Recepten</MudText>
+<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+    Voeg producten uit een recept toe aan je boodschappenlijst
+</MudText>
+
+@if (_recipes is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    <div class="d-flex gap-2 mb-4">
+        <MudTextField @bind-Value="_searchQuery"
+                      Placeholder="Zoeken..."
+                      Variant="Variant.Outlined"
+                      Dense="true"
+                      Adornment="Adornment.Start"
+                      AdornmentIcon="@Icons.Material.Filled.Search"
+                      Class="flex-1"
+                      Immediate="true" />
+        <MudButton Variant="Variant.Filled"
+                   Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.Add"
+                   OnClick="() => OpenDialogAsync(null)">
+            Nieuw
+        </MudButton>
+    </div>
+
+    @if (!FilteredRecipes.Any())
+    {
+        <MudAlert Severity="Severity.Info">
+            @(string.IsNullOrWhiteSpace(_searchQuery)
+                ? "Nog geen recepten. Voeg je eerste recept toe!"
+                : $"Geen recepten gevonden voor '{_searchQuery}'.")
+        </MudAlert>
+    }
+    else
+    {
+        <MudExpansionPanels MultiExpansion="false" Elevation="1">
+            @foreach (var recipe in FilteredRecipes)
+            {
+                <MudExpansionPanel @key="recipe.Id"
+                                   HideIcon="true"
+                                   IsExpanded="@(_expandedRecipeId == recipe.Id)"
+                                   IsExpandedChanged="@((bool expanded) => OnPanelExpandedChanged(recipe.Id, expanded))">
+                    <TitleContent>
+                        <div class="d-flex align-center w-100">
+                            <MudIcon Icon="@(_expandedRecipeId == recipe.Id ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+                                     Size="Size.Small"
+                                     Class="mr-2"
+                                     Color="Color.Secondary" />
+                            <MudText Typo="Typo.subtitle1" Class="flex-1" Style="font-weight:500">@recipe.Name</MudText>
+                            @if (recipe.Items.Any())
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Default"
+                                         Variant="Variant.Outlined" Class="mr-1">
+                                    @recipe.Items.Count ingrediënten
+                                </MudChip>
+                            }
+                            <div @onclick:stopPropagation="true">
+                                <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                                               Size="Size.Small"
+                                               Color="Color.Default"
+                                               OnClick="() => OpenDialogAsync(recipe)" />
+                                <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                               Size="Size.Small"
+                                               Color="Color.Error"
+                                               OnClick="() => DeleteAsync(recipe)" />
+                            </div>
+                        </div>
+                    </TitleContent>
+                    <ChildContent>
+                        @if (!recipe.Items.Any())
+                        {
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">
+                                Geen ingrediënten.
+                            </MudText>
+                        }
+                        else
+                        {
+                            <MudList T="RecipeItem" DisablePadding="true" Class="mb-2">
+                                @foreach (var item in recipe.Items)
+                                {
+                                    <MudListItem @key="item.Id">
+                                        <div class="d-flex align-center gap-2 w-100">
+                                            <MudCheckBox T="bool"
+                                                         Value="@GetChecked(recipe.Id, item.Id)"
+                                                         ValueChanged="@(v => SetChecked(recipe.Id, item.Id, v))"
+                                                         Color="Color.Primary"
+                                                         Dense="true" />
+                                            <MudText Class="flex-1" Typo="Typo.body1" Style="font-weight:500">@item.Product.Name</MudText>
+                                            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                                @item.Quantity @item.Unit.ToLabel()
+                                            </MudText>
+                                        </div>
+                                    </MudListItem>
+                                }
+                            </MudList>
+                            <MudButton Variant="Variant.Filled"
+                                       Color="Color.Primary"
+                                       Size="Size.Small"
+                                       StartIcon="@Icons.Material.Filled.AddShoppingCart"
+                                       FullWidth="true"
+                                       OnClick="() => AddToListAsync(recipe)">
+                                Toevoegen aan boodschappenlijst
+                            </MudButton>
+                        }
+                    </ChildContent>
+                </MudExpansionPanel>
+            }
+        </MudExpansionPanels>
+    }
+}
+
+@code {
+    private List<Recipe>?   _recipes;
+    private List<Product>?  _products;
+    private string          _searchQuery      = string.Empty;
+    private int?            _expandedRecipeId;
+
+    private IEnumerable<Recipe> FilteredRecipes =>
+        _recipes?.Where(r =>
+            string.IsNullOrWhiteSpace(_searchQuery) ||
+            r.Name.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase))
+        ?? [];
+
+    protected override async Task OnInitializedAsync() => await LoadDataAsync();
+
+    private async Task LoadDataAsync()
+    {
+        try
+        {
+            _recipes  = await RecipeService.GetAllAsync();
+            _products = await ProductService.GetAllAsync();
+
+            foreach (var recipe in _recipes)
+                foreach (var item in recipe.Items)
+                    CheckedState.Initialize(recipe.Id, item.Id, item.IsDefaultChecked);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Fout bij laden: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private bool GetChecked(int recipeId, int itemId) => CheckedState.GetChecked(recipeId, itemId, true);
+    private void SetChecked(int recipeId, int itemId, bool value) => CheckedState.SetChecked(recipeId, itemId, value);
+
+    private void OnPanelExpandedChanged(int recipeId, bool expanded)
+        => _expandedRecipeId = expanded ? recipeId : (_expandedRecipeId == recipeId ? null : _expandedRecipeId);
+
+    private async Task AddToListAsync(Recipe recipe)
+    {
+        var selected = recipe.Items
+            .Where(i => GetChecked(recipe.Id, i.Id))
+            .ToList();
+
+        if (!selected.Any())
+        {
+            Snackbar.Add("Geen producten geselecteerd", Severity.Warning);
+            return;
+        }
+
+        try
+        {
+            foreach (var item in selected)
+                await ShoppingListService.AddFromProductAsync(item.ProductId, item.Quantity);
+
+            Snackbar.Add($"{selected.Count} product(en) toegevoegd aan boodschappenlijst", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Fout bij toevoegen: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task OpenDialogAsync(Recipe? recipe)
+    {
+        var parameters = new DialogParameters
+        {
+            ["Recipe"]       = recipe,
+            ["AllProducts"]  = _products ?? [],
+            ["InitialName"]  = recipe is null ? _searchQuery.Trim() : string.Empty
+        };
+
+        var title  = recipe is null ? "Nieuw recept" : $"{recipe.Name} bewerken";
+        var dialog = await DialogService.ShowAsync<RecipeDialog>(title, parameters);
+        var result = await dialog.Result;
+
+        if (!result!.Canceled)
+        {
+            await LoadDataAsync();
+            Snackbar.Add(
+                recipe is null ? "Recept aangemaakt" : "Recept bijgewerkt",
+                Severity.Success);
+        }
+    }
+
+    private async Task DeleteAsync(Recipe recipe)
+    {
+        if (!await DialogService.ConfirmDeleteAsync(recipe.Name)) return;
+
+        try
+        {
+            await RecipeService.DeleteAsync(recipe.Id);
+            if (_expandedRecipeId == recipe.Id) _expandedRecipeId = null;
+            await LoadDataAsync();
+            Snackbar.Add($"{recipe.Name} verwijderd", Severity.Info);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Fout bij verwijderen: {ex.Message}", Severity.Error);
+        }
+    }
+}

@@ -1,0 +1,304 @@
+@page "/products"
+@rendermode InteractiveServer
+@inject ProductService ProductService
+@inject StoreService StoreService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject IJSRuntime JsRuntime
+@implements IAsyncDisposable
+
+<PageTitle>Producten</PageTitle>
+
+<MudText Typo="Typo.h5" Class="mb-1">Producten</MudText>
+<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+    Beheer producten en hun positie in de winkel
+</MudText>
+
+@if (_stores is null || _products is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    <div class="d-flex gap-2 mb-3">
+        <MudTextField T="string"
+                      Value="_searchQuery"
+                      ValueChanged="@(v => OnSearchChangedAsync(v))"
+                      Placeholder="Zoeken..."
+                      Variant="Variant.Outlined"
+                      Dense="true"
+                      Adornment="Adornment.Start"
+                      AdornmentIcon="@Icons.Material.Filled.Search"
+                      Class="flex-1"
+                      Immediate="true" />
+        <MudButton Variant="Variant.Filled"
+                   Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.Add"
+                   OnClick="() => OpenDialogAsync(null)">
+            Nieuw
+        </MudButton>
+    </div>
+
+    <div class="d-flex flex-wrap gap-2 mb-4">
+        <MudChip T="string"
+                 Color="@(_selectedStoreId is null ? Color.Primary : Color.Default)"
+                 Variant="@(_selectedStoreId is null ? Variant.Filled : Variant.Outlined)"
+                 OnClick="() => SelectStoreAsync(null)"
+                 Size="Size.Medium">
+            Alle
+        </MudChip>
+        @foreach (var store in _stores)
+        {
+            <MudChip T="string"
+                     Color="@(store.Id == _selectedStoreId ? Color.Primary : Color.Default)"
+                     Variant="@(store.Id == _selectedStoreId ? Variant.Filled : Variant.Outlined)"
+                     OnClick="() => SelectStoreAsync(store.Id)"
+                     Size="Size.Medium">
+                @store.Name
+            </MudChip>
+        }
+    </div>
+
+    @if (!HasVisibleProducts)
+    {
+        <MudAlert Severity="Severity.Info">
+            @(string.IsNullOrWhiteSpace(_searchQuery)
+                ? "Nog geen producten. Voeg je eerste product toe!"
+                : $"Geen producten gevonden voor '{_searchQuery}'.")
+        </MudAlert>
+    }
+    else
+    {
+        @foreach (var store in VisibleStores)
+        {
+            var products = ProductsForStore(store.Id);
+            if (!products.Any()) continue;
+
+            @if (_selectedStoreId is null)
+            {
+                <MudText Typo="Typo.overline" Color="Color.Secondary" Class="mt-4 mb-1 px-1">
+                    @store.Name
+                </MudText>
+            }
+
+            <MudPaper Elevation="1" Class="mb-3">
+                <MudList T="Product" id="@JsInterop.ElementIds.ProductListForStore(store.Id)" DisablePadding="true">
+                    @foreach (var product in products)
+                    {
+                        <MudListItem @key="product.Id">
+                            <div class="d-flex align-center gap-2 w-100">
+                                @if (string.IsNullOrWhiteSpace(_searchQuery))
+                                {
+                                    <MudIcon Icon="@Icons.Material.Filled.DragIndicator"
+                                             Class="drag-handle"
+                                             Color="Color.Tertiary" />
+                                }
+                                <div class="flex-1">
+                                    <MudText Typo="Typo.body1" Style="font-weight:500">@product.Name</MudText>
+                                    <div class="d-flex gap-1 mt-1 flex-wrap">
+                                        <MudChip T="string" Size="Size.Small"
+                                                 Color="Color.Default"
+                                                 Variant="Variant.Outlined">
+                                            @product.DefaultQuantity @product.DefaultUnit.ToLabel()
+                                        </MudChip>
+                                        @if (product.IsWeeklyRecurring)
+                                        {
+                                            <MudChip T="string" Size="Size.Small"
+                                                     Color="Color.Success"
+                                                     Variant="Variant.Outlined">
+                                                🔁 Wekelijks
+                                            </MudChip>
+                                        }
+                                    </div>
+                                </div>
+                                <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                                               Size="Size.Small"
+                                               Color="Color.Default"
+                                               OnClick="() => OpenDialogAsync(product)" />
+                                <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                               Size="Size.Small"
+                                               Color="Color.Error"
+                                               OnClick="() => DeleteAsync(product)" />
+                            </div>
+                        </MudListItem>
+                    }
+                </MudList>
+            </MudPaper>
+        }
+    }
+}
+
+@code {
+    private List<Store>?   _stores;
+    private List<Product>? _products;
+    private string         _searchQuery     = string.Empty;
+    private int?           _selectedStoreId = null;
+    private bool           _shouldInitSortables;
+    private DotNetObjectReference<Products>? _dotNetRef;
+
+    private Dictionary<int, List<Product>> _orderedByStore = new();
+
+    private IEnumerable<Store> VisibleStores =>
+        _selectedStoreId.HasValue
+            ? _stores!.Where(s => s.Id == _selectedStoreId.Value)
+            : _stores!;
+
+    private List<Product> ProductsForStore(int storeId)
+    {
+        if (!_orderedByStore.TryGetValue(storeId, out var list)) return [];
+        if (string.IsNullOrWhiteSpace(_searchQuery)) return list;
+        return list
+            .Where(p => p.Name.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    private bool HasVisibleProducts => VisibleStores.Any(s => ProductsForStore(s.Id).Any());
+
+    protected override async Task OnInitializedAsync() => await LoadDataAsync();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+            _dotNetRef = DotNetObjectReference.Create(this);
+
+        if (_shouldInitSortables)
+        {
+            _shouldInitSortables = false;
+            await InitSortablesAsync();
+        }
+    }
+
+    private async Task InitSortablesAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_searchQuery))
+        {
+            foreach (var store in VisibleStores)
+            {
+                if (ProductsForStore(store.Id).Count > 1)
+                    await JsRuntime.InvokeVoidAsync(JsInterop.InitSortable,
+                        JsInterop.ElementIds.ProductListForStore(store.Id),
+                        _dotNetRef, "OnProductOrderChanged", store.Id);
+            }
+        }
+    }
+
+    private async Task LoadDataAsync()
+    {
+        try
+        {
+            _stores   = await StoreService.GetAllOrderedAsync();
+            _products = await ProductService.GetAllAsync();
+            BuildOrderedByStore();
+            _shouldInitSortables = true;
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Fout bij laden: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private void BuildOrderedByStore()
+    {
+        if (_products is null || _stores is null) return;
+        _orderedByStore = _stores.ToDictionary(
+            s => s.Id,
+            s => _products
+                .Where(p => p.DefaultStoreId == s.Id)
+                .OrderBy(p => p.StoreOrders
+                    .Where(o => o.StoreId == s.Id)
+                    .Select(o => o.Position)
+                    .FirstOrDefault())
+                .ThenByDescending(p => p.Id)
+                .ToList());
+    }
+
+    private async Task SelectStoreAsync(int? storeId)
+    {
+        _selectedStoreId     = storeId;
+        _shouldInitSortables = true;
+    }
+
+    private async Task OnSearchChangedAsync(string value)
+    {
+        var wasEmpty = string.IsNullOrWhiteSpace(_searchQuery);
+        _searchQuery = value;
+        if (wasEmpty != string.IsNullOrWhiteSpace(_searchQuery))
+            _shouldInitSortables = true;
+    }
+
+    [JSInvokable]
+    public async Task OnProductOrderChanged(int oldIndex, int newIndex, int storeId)
+    {
+        if (!_orderedByStore.TryGetValue(storeId, out var list)) return;
+        if (oldIndex == newIndex) return;
+
+        var item = list[oldIndex];
+        list.RemoveAt(oldIndex);
+        list.Insert(newIndex, item);
+
+        try
+        {
+            var positions = list.Select((p, i) => (p.Id, i + 1)).ToList();
+            await ProductService.SaveAllStorePositionsAsync(storeId, positions);
+            Snackbar.Add("Volgorde opgeslagen", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Fout bij opslaan volgorde: {ex.Message}", Severity.Error);
+        }
+
+        await JsRuntime.InvokeVoidAsync(JsInterop.InitSortable,
+            JsInterop.ElementIds.ProductListForStore(storeId),
+            _dotNetRef, "OnProductOrderChanged", storeId);
+    }
+
+    private async Task OpenDialogAsync(Product? product)
+    {
+        var parameters = new DialogParameters
+        {
+            ["Product"]     = product,
+            ["Stores"]      = _stores ?? [],
+            ["AllProducts"] = _products ?? [],
+            ["InitialName"] = product is null ? _searchQuery.Trim() : string.Empty
+        };
+
+        var title  = product is null ? "Nieuw product" : $"{product.Name} bewerken";
+        var dialog = await DialogService.ShowAsync<ProductDialog>(title, parameters);
+        var result = await dialog.Result;
+
+        if (!result!.Canceled)
+        {
+            await LoadDataAsync();
+            Snackbar.Add(
+                product is null ? "Product aangemaakt" : "Product bijgewerkt",
+                Severity.Success);
+        }
+    }
+
+    private async Task DeleteAsync(Product product)
+    {
+        if (!await DialogService.ConfirmDeleteAsync(product.Name)) return;
+
+        try
+        {
+            await ProductService.DeleteAsync(product.Id);
+            await LoadDataAsync();
+            Snackbar.Add($"{product.Name} verwijderd", Severity.Info);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Fout bij verwijderen: {ex.Message}", Severity.Error);
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_stores is not null)
+            foreach (var store in _stores)
+            {
+                try { await JsRuntime.InvokeVoidAsync(JsInterop.DestroySortable, JsInterop.ElementIds.ProductListForStore(store.Id)); }
+                catch (Exception ex) when (ex is JSDisconnectedException or JSException or InvalidOperationException) { }
+            }
+        _dotNetRef?.Dispose();
+    }
+}

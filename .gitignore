@@ -1,0 +1,30 @@
+# .NET build output
+ha-shopping-list/src/**/bin/
+ha-shopping-list/src/**/obj/
+
+# User-specific files
+*.user
+*.suo
+*.userprefs
+.vs/
+.idea/
+
+# NuGet
+*.nupkg
+*.snupkg
+**/[Pp]ackages/
+!**/[Pp]ackages/build/
+*.nuget.props
+*.nuget.targets
+
+# SQLite databases
+*.db
+*.db-shm
+*.db-wal
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Rider / VS
+*.DotSettings.user

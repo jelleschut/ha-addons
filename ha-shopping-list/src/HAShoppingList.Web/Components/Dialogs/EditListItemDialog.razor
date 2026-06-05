@@ -1,0 +1,73 @@
+@inject ShoppingListService ShoppingListService
+
+<MudDialog>
+    <DialogContent>
+        <MudSelect T="int" Label="Winkel" @bind-Value="_storeId" Variant="Variant.Outlined" Class="mb-3">
+            @foreach (var store in Stores)
+            {
+                <MudSelectItem Value="store.Id">@store.Name</MudSelectItem>
+            }
+        </MudSelect>
+        <div class="d-flex gap-3 mb-3">
+            <MudNumericField T="decimal" Label="Hoeveelheid" @bind-Value="_quantity"
+                             Min="1m" Step="1m" Variant="Variant.Outlined" />
+            <MudSelect T="QuantityUnit" Label="Eenheid" @bind-Value="_unit" Variant="Variant.Outlined">
+                @foreach (var unit in Enum.GetValues<QuantityUnit>())
+                {
+                    <MudSelectItem Value="unit">@unit.ToLabel()</MudSelectItem>
+                }
+            </MudSelect>
+        </div>
+        <MudTextField Label="Notitie" @bind-Value="_note"
+                      Placeholder="bijv. biologisch, huismerk..."
+                      Variant="Variant.Outlined" />
+
+        @if (_saveError is not null)
+        {
+            <MudAlert Severity="Severity.Error" Dense="true" Class="mt-3">@_saveError</MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Annuleren</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save">Opslaan</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public ShoppingListItem Item   { get; set; } = null!;
+    [Parameter] public List<Store>      Stores { get; set; } = [];
+
+    private decimal      _quantity;
+    private QuantityUnit _unit;
+    private string       _note      = string.Empty;
+    private int          _storeId;
+    private string?      _saveError;
+
+    protected override void OnParametersSet()
+    {
+        _quantity = Item.Quantity;
+        _unit     = Item.Unit;
+        _note     = Item.Note ?? string.Empty;
+        _storeId  = Item.StoreId;
+    }
+
+    private async Task Save()
+    {
+        try
+        {
+            Item.Quantity = _quantity;
+            Item.Unit     = _unit;
+            Item.Note     = string.IsNullOrWhiteSpace(_note) ? null : _note;
+            Item.StoreId  = _storeId;
+            await ShoppingListService.UpdateItemAsync(Item);
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        catch (Exception ex)
+        {
+            _saveError = ex.Message;
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}

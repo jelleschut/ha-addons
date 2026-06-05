@@ -1,0 +1,308 @@
+@inject ProductService ProductService
+@inject IJSRuntime JsRuntime
+@implements IAsyncDisposable
+
+<MudDialog>
+    <DialogContent>
+        <MudTextField T="string?" Label="Naam"
+                      Value="_form.Name"
+                      ValueChanged="@(v => OnNameChanged(v))"
+                      Variant="Variant.Outlined"
+                      Immediate="true"
+                      Class="mb-3"
+                      OnlyValidateIfDirty="true" />
+
+        <MudSelect T="int" Label="Winkel"
+                   Value="_form.DefaultStoreId"
+                   ValueChanged="OnStoreChangedAsync"
+                   Variant="Variant.Outlined"
+                   Class="mb-3">
+            @foreach (var store in Stores)
+            {
+                <MudSelectItem Value="store.Id">@store.Name</MudSelectItem>
+            }
+        </MudSelect>
+
+        <div class="d-flex gap-3 mb-3">
+            <MudNumericField T="decimal"
+                             Label="Hoeveelheid"
+                             @bind-Value="_form.DefaultQuantity"
+                             Min="1m"
+                             Step="1m"
+                             Variant="Variant.Outlined"
+                             Class="flex-1" />
+            <MudSelect T="QuantityUnit"
+                       Label="Eenheid"
+                       @bind-Value="_form.DefaultUnit"
+                       Variant="Variant.Outlined"
+                       Class="flex-1">
+                @foreach (var unit in Enum.GetValues<QuantityUnit>())
+                {
+                    <MudSelectItem Value="unit">@unit.ToLabel()</MudSelectItem>
+                }
+            </MudSelect>
+        </div>
+
+        <!-- Positielijst -->
+        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-1">
+            Positie in winkel
+        </MudText>
+
+        @if (_positionItems is null)
+        {
+            <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="mb-3" />
+        }
+        else if (_positionItems.Count(p => !p.IsNew) == 0)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+                Eerste product in deze winkel.
+            </MudAlert>
+        }
+        else
+        {
+            <MudText Typo="Typo.caption" Color="Color.Tertiary" Class="mb-1">
+                ☝️ Sleep naar de juiste plek
+            </MudText>
+            <MudPaper Outlined="true" Class="mb-3" Style="max-height:220px;overflow-y:auto">
+                <MudList T="PositionItem" id="@JsInterop.ElementIds.PositionOrderList" DisablePadding="true">
+                    @foreach (var item in _positionItems)
+                    {
+                        <MudListItem @key="@(item.IsNew ? "new" : item.ProductId.ToString())">
+                            <div class="d-flex align-center gap-2 w-100">
+                                <MudIcon Icon="@Icons.Material.Filled.DragIndicator"
+                                         Class="drag-handle"
+                                         Color="Color.Tertiary"
+                                         Size="Size.Small" />
+                                <MudText Class="flex-1"
+                                         Style="@(item.IsNew ? "font-weight:600" : "")">
+                                    @item.Name
+                                </MudText>
+                                @if (item.IsNew)
+                                {
+                                    <MudChip T="string" Size="Size.Small"
+                                             Color="Color.Primary"
+                                             Variant="Variant.Filled">
+                                        Nieuw
+                                    </MudChip>
+                                }
+                            </div>
+                        </MudListItem>
+                    }
+                </MudList>
+            </MudPaper>
+        }
+
+        <MudCheckBox T="bool"
+                     @bind-Value="_form.IsWeeklyRecurring"
+                     Color="Color.Primary"
+                     Label="🔁 Wekelijks herhalend" />
+
+        @if (_saveError is not null)
+        {
+            <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">@_saveError</MudAlert>
+        }
+    </DialogContent>
+
+    <DialogActions>
+        <MudButton OnClick="Cancel">Annuleren</MudButton>
+        <MudButton Color="Color.Primary"
+                   Variant="Variant.Filled"
+                   Disabled="@(!IsFormValid())"
+                   OnClick="SaveAsync">
+            Opslaan
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public Product?       Product     { get; set; }
+    [Parameter] public List<Store>    Stores      { get; set; } = [];
+    [Parameter] public List<Product>  AllProducts { get; set; } = [];
+
+    // Optionele initiële naam (vanuit ShoppingList quick-add)
+    [Parameter] public string InitialName { get; set; } = string.Empty;
+
+    private ProductForm         _form          = new();
+    private List<PositionItem>? _positionItems = null;
+    private bool                _shouldInitSortable;
+    private DotNetObjectReference<ProductDialog>? _dotNetRef;
+    private string?             _saveError;
+
+    private class PositionItem
+    {
+        public int    ProductId { get; set; }
+        public string Name      { get; set; } = string.Empty;
+        public bool   IsNew     { get; set; }
+    }
+
+    private class ProductForm
+    {
+        public string?      Name              { get; set; }
+        public int          DefaultStoreId    { get; set; }
+        public decimal      DefaultQuantity   { get; set; } = 1;
+        public QuantityUnit DefaultUnit       { get; set; } = QuantityUnit.Stuks;
+        public bool         IsWeeklyRecurring { get; set; }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Product is null)
+        {
+            _form = new ProductForm
+            {
+                Name           = string.IsNullOrWhiteSpace(InitialName) ? null : InitialName,
+                DefaultStoreId = Stores.FirstOrDefault()?.Id ?? 0
+            };
+        }
+        else
+        {
+            _form = new ProductForm
+            {
+                Name              = Product.Name,
+                DefaultStoreId    = Product.DefaultStoreId,
+                DefaultQuantity   = Product.DefaultQuantity,
+                DefaultUnit       = Product.DefaultUnit,
+                IsWeeklyRecurring = Product.IsWeeklyRecurring
+            };
+        }
+
+        LoadPositionList(_form.DefaultStoreId);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+            _dotNetRef = DotNetObjectReference.Create(this);
+
+        if (_shouldInitSortable && _positionItems is not null && _positionItems.Count > 1)
+        {
+            _shouldInitSortable = false;
+            await JsRuntime.InvokeVoidAsync(JsInterop.InitSortable,
+                JsInterop.ElementIds.PositionOrderList, _dotNetRef, "OnPositionOrderChanged");
+        }
+    }
+
+    private void OnNameChanged(string? value)
+    {
+        _form.Name = value ?? string.Empty;
+
+        var newItem = _positionItems?.FirstOrDefault(p => p.IsNew);
+        if (newItem is not null)
+            newItem.Name = string.IsNullOrWhiteSpace(value) ? "Nieuw product" : value;
+    }
+
+    private async Task OnStoreChangedAsync(int storeId)
+    {
+        _form.DefaultStoreId = storeId;
+        LoadPositionList(storeId);
+    }
+
+    private void LoadPositionList(int storeId)
+    {
+        _positionItems = null;
+        StateHasChanged();
+
+        var positionLookup = AllProducts.ToDictionary(
+            p => p.Id,
+            p => p.StoreOrders
+                .Where(o => o.StoreId == storeId)
+                .Select(o => o.Position)
+                .FirstOrDefault());
+
+        var existing = AllProducts
+            .Where(p => p.DefaultStoreId == storeId
+                        && (Product is null || p.Id != Product.Id))
+            .Select(p => new PositionItem { ProductId = p.Id, Name = p.Name, IsNew = false })
+            .OrderBy(p => positionLookup.GetValueOrDefault(p.ProductId))
+            .ToList();
+
+        existing.Add(new PositionItem
+        {
+            ProductId = 0,
+            Name      = string.IsNullOrWhiteSpace(_form.Name) ? "Nieuw product" : _form.Name,
+            IsNew     = true
+        });
+
+        _positionItems      = existing;
+        _shouldInitSortable = true;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public async Task OnPositionOrderChanged(int oldIndex, int newIndex)
+    {
+        if (_positionItems is null || oldIndex == newIndex) return;
+
+        var item = _positionItems[oldIndex];
+        _positionItems.RemoveAt(oldIndex);
+        _positionItems.Insert(newIndex, item);
+
+        await JsRuntime.InvokeVoidAsync(JsInterop.InitSortable,
+            JsInterop.ElementIds.PositionOrderList, _dotNetRef, "OnPositionOrderChanged");
+    }
+
+    private bool IsFormValid() =>
+        !string.IsNullOrWhiteSpace(_form.Name) &&
+        _form.DefaultStoreId > 0 &&
+        _form.DefaultQuantity > 0;
+
+    private async Task SaveAsync()
+    {
+        if (!IsFormValid()) return;
+
+        try
+        {
+            int savedProductId;
+
+            if (Product is null)
+            {
+                var product = new Product
+                {
+                    Name              = _form.Name!.Trim(),
+                    DefaultStoreId    = _form.DefaultStoreId,
+                    DefaultQuantity   = _form.DefaultQuantity,
+                    DefaultUnit       = _form.DefaultUnit,
+                    IsWeeklyRecurring = _form.IsWeeklyRecurring
+                };
+                var saved = await ProductService.AddAsync(product);
+                savedProductId = saved.Id;
+            }
+            else
+            {
+                Product.Name              = _form.Name!.Trim();
+                Product.DefaultStoreId    = _form.DefaultStoreId;
+                Product.DefaultQuantity   = _form.DefaultQuantity;
+                Product.DefaultUnit       = _form.DefaultUnit;
+                Product.IsWeeklyRecurring = _form.IsWeeklyRecurring;
+                await ProductService.UpdateAsync(Product);
+                savedProductId = Product.Id;
+            }
+
+            if (_positionItems is not null)
+            {
+                var positions = _positionItems
+                    .Select((item, index) => (
+                        ProductId: item.IsNew ? savedProductId : item.ProductId,
+                        Position:  index + 1))
+                    .ToList();
+                await ProductService.SaveAllStorePositionsAsync(_form.DefaultStoreId, positions);
+            }
+
+            MudDialog.Close(DialogResult.Ok(savedProductId));
+        }
+        catch (Exception ex)
+        {
+            _saveError = ex.Message;
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JsRuntime.InvokeVoidAsync(JsInterop.DestroySortable, JsInterop.ElementIds.PositionOrderList); }
+        catch (Exception ex) when (ex is JSDisconnectedException or JSException) { }
+        _dotNetRef?.Dispose();
+    }
+}

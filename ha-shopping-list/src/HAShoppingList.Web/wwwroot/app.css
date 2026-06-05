@@ -1,0 +1,8 @@
+.drag-handle {
+    cursor: grab;
+    touch-action: none;
+}
+
+.drag-handle:active { cursor: grabbing; }
+
+.flex-1 { flex: 1; }

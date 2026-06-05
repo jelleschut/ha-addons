@@ -1,0 +1,28 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HAShoppingList.Web", "HAShoppingList.Web\HAShoppingList.Web.csproj", "{0DDC3C32-9876-46E6-AEAD-895D295CA425}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HAShoppingList.Core", "HAShoppingList.Core\HAShoppingList.Core.csproj", "{161DFB4A-4CC6-4DAB-B638-664D9E7B477F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HAShoppingList.Infrastructure", "HAShoppingList.Infrastructure\HAShoppingList.Infrastructure.csproj", "{F5649ABC-5F95-4CDA-BFED-FBA243998276}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{0DDC3C32-9876-46E6-AEAD-895D295CA425}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0DDC3C32-9876-46E6-AEAD-895D295CA425}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0DDC3C32-9876-46E6-AEAD-895D295CA425}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0DDC3C32-9876-46E6-AEAD-895D295CA425}.Release|Any CPU.Build.0 = Release|Any CPU
+		{161DFB4A-4CC6-4DAB-B638-664D9E7B477F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{161DFB4A-4CC6-4DAB-B638-664D9E7B477F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{161DFB4A-4CC6-4DAB-B638-664D9E7B477F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{161DFB4A-4CC6-4DAB-B638-664D9E7B477F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F5649ABC-5F95-4CDA-BFED-FBA243998276}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F5649ABC-5F95-4CDA-BFED-FBA243998276}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F5649ABC-5F95-4CDA-BFED-FBA243998276}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F5649ABC-5F95-4CDA-BFED-FBA243998276}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

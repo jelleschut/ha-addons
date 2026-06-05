@@ -1,0 +1,340 @@
+<style>
+    #recipe-items-list input[type=number]  { text-align: right; }
+    #recipe-items-list .mud-select         { min-width: 0 !important; width: 68px !important; }
+    #recipe-items-list .mud-select-input   { padding-right: 24px !important; }
+</style>
+
+@inject RecipeService RecipeService
+@inject ProductService ProductService
+@inject StoreService StoreService
+@inject IDialogService DialogService
+@inject IJSRuntime JsRuntime
+@implements IAsyncDisposable
+
+<MudDialog>
+    <DialogContent>
+        <MudTextField T="string" Label="Naam"
+                      @bind-Value="_name"
+                      Variant="Variant.Outlined"
+                      Immediate="true"
+                      Class="mb-4" />
+
+        @if (_items.Any())
+        {
+            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-2">Ingrediënten</MudText>
+            <div id="recipe-items-list">
+                @foreach (var item in _items)
+                {
+                    <div class="d-flex align-center gap-2 mb-2" @key="item.ProductId">
+                        <MudIcon Icon="@Icons.Material.Filled.DragIndicator"
+                                 Class="drag-handle"
+                                 Color="Color.Tertiary" />
+                        <MudCheckBox T="bool"
+                                     @bind-Value="item.IsDefaultChecked"
+                                     Color="Color.Primary"
+                                     Size="Size.Small"
+                                     title="Standaard aangevinkt" />
+                        <MudText Class="flex-1" Typo="Typo.body2">@item.ProductName</MudText>
+                        <div class="d-flex align-center" style="gap:4px">
+                            <MudNumericField T="decimal"
+                                             @bind-Value="item.Quantity"
+                                             Min="1m" Step="1m"
+                                             Variant="Variant.Outlined"
+                                             Dense="true"
+                                             HideSpinButtons="true"
+                                             Style="width:65px" />
+                            <MudSelect T="QuantityUnit"
+                                       @bind-Value="item.Unit"
+                                       Variant="Variant.Outlined"
+                                       Dense="true"
+                                       Style="width:68px">
+                                @foreach (var unit in Enum.GetValues<QuantityUnit>())
+                                {
+                                    <MudSelectItem Value="unit">@unit.ToLabel()</MudSelectItem>
+                                }
+                            </MudSelect>
+                        </div>
+                        <MudIconButton Icon="@Icons.Material.Filled.Close"
+                                       Size="Size.Small"
+                                       Color="Color.Error"
+                                       OnClick="() => RemoveItem(item)" />
+                    </div>
+                }
+            </div>
+            <MudDivider Class="my-3" />
+        }
+
+        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-2">Product toevoegen</MudText>
+        <MudAutocomplete T="Product"
+                         @ref="_autocomplete"
+                         Value="_newProduct"
+                         ValueChanged="OnProductSelected"
+                         Placeholder="Zoek product..."
+                         SearchFunc="SearchProducts"
+                         ToStringFunc="p => p?.Name ?? string.Empty"
+                         Variant="Variant.Outlined"
+                         Dense="true"
+                         ResetValueOnEmptyText="true"
+                         CoerceText="false"
+                         Class="mb-2" />
+        <div class="d-flex gap-2 align-center mb-1">
+            <MudNumericField T="decimal"
+                             @bind-Value="_newQuantity"
+                             Label="Hoeveelheid"
+                             Min="1m" Step="1m"
+                             Variant="Variant.Outlined"
+                             Dense="true"
+                             Class="flex-1" />
+            <MudSelect T="QuantityUnit"
+                       @bind-Value="_newUnit"
+                       Label="Eenheid"
+                       Variant="Variant.Outlined"
+                       Dense="true"
+                       Class="flex-1">
+                @foreach (var unit in Enum.GetValues<QuantityUnit>())
+                {
+                    <MudSelectItem Value="unit">@unit.ToLabel()</MudSelectItem>
+                }
+            </MudSelect>
+            <MudIconButton Icon="@Icons.Material.Filled.Add"
+                           Color="Color.Primary"
+                           Variant="Variant.Filled"
+                           Disabled="@(_newProduct is null)"
+                           OnClick="AddItem" />
+        </div>
+        <MudButton Variant="Variant.Text"
+                   Color="Color.Secondary"
+                   Size="Size.Small"
+                   StartIcon="@Icons.Material.Filled.AddCircleOutline"
+                   OnClick="OpenNewProductDialogAsync"
+                   Class="mb-2">
+            Nieuw product aanmaken
+        </MudButton>
+
+        @if (_saveError is not null)
+        {
+            <MudAlert Severity="Severity.Error" Dense="true" Class="mt-3">@_saveError</MudAlert>
+        }
+    </DialogContent>
+
+    <DialogActions>
+        <MudButton OnClick="Cancel">Annuleren</MudButton>
+        <MudButton Color="Color.Primary"
+                   Variant="Variant.Filled"
+                   Disabled="@(!IsFormValid())"
+                   OnClick="SaveAsync">
+            Opslaan
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public Recipe?       Recipe      { get; set; }
+    [Parameter] public List<Product> AllProducts { get; set; } = [];
+    [Parameter] public string        InitialName { get; set; } = string.Empty;
+
+    private string         _name               = string.Empty;
+    private List<ItemForm> _items              = [];
+    private List<Product>  _products           = [];
+    private Product?       _newProduct;
+    private decimal        _newQuantity        = 1;
+    private QuantityUnit   _newUnit            = QuantityUnit.Stuks;
+    private string?        _saveError;
+    private string         _searchText         = string.Empty;
+    private bool           _shouldInitSortable;
+    private DotNetObjectReference<RecipeDialog>? _dotNetRef;
+    private MudAutocomplete<Product>? _autocomplete;
+
+    private class ItemForm
+    {
+        public int          ProductId        { get; set; }
+        public string       ProductName      { get; set; } = string.Empty;
+        public decimal      Quantity         { get; set; } = 1;
+        public QuantityUnit Unit             { get; set; } = QuantityUnit.Stuks;
+        public bool         IsDefaultChecked { get; set; } = true;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+            _dotNetRef = DotNetObjectReference.Create(this);
+
+        if (_shouldInitSortable && _items.Count > 1)
+        {
+            _shouldInitSortable = false;
+            await JsRuntime.InvokeVoidAsync(JsInterop.InitSortable, "recipe-items-list", _dotNetRef);
+        }
+    }
+
+    [JSInvokable]
+    public void OnOrderChanged(int oldIndex, int newIndex)
+    {
+        if (oldIndex == newIndex) return;
+        var item = _items[oldIndex];
+        _items.RemoveAt(oldIndex);
+        _items.Insert(newIndex, item);
+        _shouldInitSortable = true;
+        StateHasChanged();
+    }
+
+    protected override void OnParametersSet()
+    {
+        _products = new List<Product>(AllProducts);
+
+        if (Recipe is null)
+        {
+            _name  = string.IsNullOrWhiteSpace(InitialName) ? string.Empty : InitialName;
+            _items = [];
+        }
+        else
+        {
+            _name  = Recipe.Name;
+            _items = Recipe.Items.Select(i => new ItemForm
+            {
+                ProductId        = i.ProductId,
+                ProductName      = i.Product.Name,
+                Quantity         = i.Quantity,
+                Unit             = i.Unit,
+                IsDefaultChecked = i.IsDefaultChecked
+            }).ToList();
+        }
+
+        _shouldInitSortable = true;
+    }
+
+    private Task<IEnumerable<Product>> SearchProducts(string value, CancellationToken ct)
+    {
+        _searchText = value;
+        var alreadyAdded = _items.Select(i => i.ProductId).ToHashSet();
+        var results = _products
+            .Where(p => p.Name.Contains(value, StringComparison.OrdinalIgnoreCase)
+                        && !alreadyAdded.Contains(p.Id))
+            .Take(8)
+            .AsEnumerable();
+        return Task.FromResult(results);
+    }
+
+    private void OnProductSelected(Product? product)
+    {
+        _newProduct = product;
+        if (product is not null)
+        {
+            _newUnit     = product.DefaultUnit;
+            _newQuantity = product.DefaultQuantity;
+        }
+    }
+
+    private void AddItem()
+    {
+        if (_newProduct is null) return;
+
+        _items.Insert(0, new ItemForm
+        {
+            ProductId   = _newProduct.Id,
+            ProductName = _newProduct.Name,
+            Quantity    = _newQuantity,
+            Unit        = _newUnit
+        });
+
+        _newProduct         = null;
+        _newQuantity        = 1;
+        _newUnit            = QuantityUnit.Stuks;
+        _searchText         = string.Empty;
+        _shouldInitSortable = true;
+    }
+
+    private void RemoveItem(ItemForm item)
+    {
+        _items.Remove(item);
+        _shouldInitSortable = true;
+    }
+
+    private async Task OpenNewProductDialogAsync()
+    {
+        var stores = await StoreService.GetAllOrderedAsync();
+
+        var parameters = new DialogParameters
+        {
+            ["InitialName"] = _searchText.Trim(),
+            ["Stores"]      = stores,
+            ["AllProducts"] = _products
+        };
+
+        var dialog = await DialogService.ShowAsync<ProductDialog>("Nieuw product", parameters);
+        var result = await dialog.Result;
+
+        if (result is { Canceled: false, Data: int newProductId })
+        {
+            // Reload products to include the newly created one
+            _products = await ProductService.GetAllAsync();
+
+            var newProduct = _products.FirstOrDefault(p => p.Id == newProductId);
+            if (newProduct is not null)
+            {
+                _items.Insert(0, new ItemForm
+                {
+                    ProductId   = newProduct.Id,
+                    ProductName = newProduct.Name,
+                    Quantity    = newProduct.DefaultQuantity,
+                    Unit        = newProduct.DefaultUnit
+                });
+            }
+
+            if (_autocomplete is not null)
+                await _autocomplete.ResetAsync();
+            _searchText = string.Empty;
+        }
+    }
+
+    private bool IsFormValid() => !string.IsNullOrWhiteSpace(_name);
+
+    private async Task SaveAsync()
+    {
+        if (!IsFormValid()) return;
+
+        try
+        {
+            var itemList = _items
+                .Select(i => (i.ProductId, i.Quantity, i.Unit, i.IsDefaultChecked))
+                .ToList();
+
+            if (Recipe is null)
+            {
+                var recipe = new Recipe
+                {
+                    Name  = _name.Trim(),
+                    Items = _items.Select((i, idx) => new RecipeItem
+                    {
+                        ProductId        = i.ProductId,
+                        Quantity         = i.Quantity,
+                        Unit             = i.Unit,
+                        Position         = idx + 1,
+                        IsDefaultChecked = i.IsDefaultChecked
+                    }).ToList()
+                };
+                await RecipeService.AddAsync(recipe);
+            }
+            else
+            {
+                await RecipeService.UpdateNameAsync(Recipe.Id, _name.Trim());
+                await RecipeService.SetItemsAsync(Recipe.Id, itemList);
+            }
+
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        catch (Exception ex)
+        {
+            _saveError = ex.Message;
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JsRuntime.InvokeVoidAsync(JsInterop.DestroySortable, "recipe-items-list"); }
+        catch (Exception ex) when (ex is JSDisconnectedException or JSException) { }
+        _dotNetRef?.Dispose();
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}

@@ -1,0 +1,298 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@inject ShoppingListService ShoppingListService
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+
+<PageTitle>Boodschappenlijst</PageTitle>
+
+<!-- Quick add -->
+<MudPaper Elevation="2" Class="pa-3 mb-4" Style="position:sticky;top:56px;z-index:100">
+    <MudAutocomplete T="Product"
+                     @ref="_autocomplete"
+                     Placeholder="Product zoeken..."
+                     SearchFunc="SearchProducts"
+                     ToStringFunc="p => p?.Name ?? string.Empty"
+                     ValueChanged="OnProductSelected"
+                     Dense="true"
+                     Variant="Variant.Outlined"
+                     Adornment="Adornment.End"
+                     AdornmentIcon="@Icons.Material.Filled.Search"
+                     ShowProgressIndicator="true"
+                     MinCharacters="1"
+                     ResetValueOnEmptyText="true"
+                     CoerceText="false">
+        <ItemTemplate>
+            <div class="d-flex align-center justify-space-between w-100">
+                <span>@context.Name</span>
+                <MudChip T="string" Size="Size.Small" Color="Color.Default"
+                         Variant="Variant.Outlined" Class="ml-2 my-0">
+                    @context.DefaultStore?.Name
+                </MudChip>
+            </div>
+        </ItemTemplate>
+    </MudAutocomplete>
+    <MudButton Variant="Variant.Filled"
+               Color="Color.Primary"
+               FullWidth="true"
+               Class="mt-2"
+               StartIcon="@Icons.Material.Filled.Add"
+               Disabled="@string.IsNullOrWhiteSpace(_searchQuery)"
+               OnClick="OpenNewProductDialog">
+        Nieuw product aanmaken
+    </MudButton>
+</MudPaper>
+
+<!-- Acties -->
+<div class="d-flex flex-column flex-sm-row gap-2 mb-4">
+    <MudButton Variant="Variant.Outlined"
+               Color="Color.Primary"
+               StartIcon="@Icons.Material.Filled.Refresh"
+               OnClick="AddWeeklyItemsAsync"
+               FullWidth="true">
+        Weekboodschappen
+    </MudButton>
+    <MudButton Variant="Variant.Outlined"
+               Color="Color.Error"
+               StartIcon="@Icons.Material.Filled.DeleteSweep"
+               OnClick="ClearAllAsync"
+               FullWidth="true">
+        Verwijder alles
+    </MudButton>
+</div>
+
+<!-- Lege staat -->
+@if (!_groupedItems.Any())
+{
+    <MudPaper Elevation="0" Class="pa-8 text-center">
+        <MudIcon Icon="@Icons.Material.Outlined.ShoppingCart"
+                 Size="Size.Large" Color="Color.Tertiary" Class="mb-3" />
+        <MudText Typo="Typo.h6" Color="Color.Secondary">Boodschappenlijst is leeg</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Tertiary">
+            Voeg producten toe of laad je wekelijkse items
+        </MudText>
+    </MudPaper>
+}
+
+<!-- Items per winkel -->
+@foreach (var group in _groupedItems)
+{
+    <MudText Typo="Typo.overline" Color="Color.Secondary" Class="mt-3 mb-1 px-1">
+        @group.Store.Name
+        <MudChip T="string" Size="Size.Small" Color="Color.Default" Class="ml-1">
+            @group.Items.Count(i => !i.IsChecked) over
+        </MudChip>
+    </MudText>
+
+    <MudPaper Elevation="1" Class="mb-3">
+        <MudList T="ShoppingListItem" DisablePadding="true">
+            @foreach (var item in group.Items)
+            {
+                <MudListItem @key="item.Id" Class="@(item.IsChecked ? "mud-list-item-checked" : "")">
+                    <div class="d-flex align-center gap-2 w-100">
+                        <MudCheckBox T="bool"
+                                     Value="item.IsChecked"
+                                     ValueChanged="v => ToggleCheckAsync(item, v)"
+                                     Color="Color.Primary"
+                                     Dense="true" />
+                        <div class="flex-1">
+                            <MudText Typo="Typo.body1"
+                                     Style="@(item.IsChecked ? "text-decoration:line-through;opacity:0.5" : "")">
+                                @item.Product.Name
+                            </MudText>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                @item.Quantity @item.Unit.ToLabel()
+                                @if (item.IsRecurring)
+                                {<span> · 🔁</span>}
+                                @if (!string.IsNullOrWhiteSpace(item.Note))
+                                {<span> · @item.Note</span>}
+                            </MudText>
+                        </div>
+                        <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                                       Size="Size.Small"
+                                       Color="Color.Default"
+                                       OnClick="() => OpenEditDialog(item)" />
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                       Size="Size.Small"
+                                       Color="Color.Error"
+                                       OnClick="() => DeleteItemAsync(item.Id)" />
+                    </div>
+                </MudListItem>
+                @if (item != group.Items.Last())
+                {
+                    <MudDivider />
+                }
+            }
+        </MudList>
+    </MudPaper>
+}
+
+@code {
+    private List<StoreWithItems> _groupedItems = [];
+    private List<Store>          _stores       = [];
+    private List<Product>        _allProducts  = [];
+    private string               _searchQuery  = string.Empty;
+    private MudAutocomplete<Product>? _autocomplete;
+
+    protected override async Task OnParametersSetAsync() => await LoadDataAsync();
+
+    private async Task LoadDataAsync()
+    {
+        try
+        {
+            _groupedItems = await ShoppingListService.GetGroupedItemsAsync();
+            _stores       = await ShoppingListService.GetAllStoresAsync();
+            _allProducts  = await ShoppingListService.GetAllProductsAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Fout bij laden: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private Task<IEnumerable<Product>> SearchProducts(string value, CancellationToken ct)
+    {
+        _searchQuery = value;
+        StateHasChanged();
+        var results = _allProducts
+            .Where(p => p.Name.Contains(value, StringComparison.OrdinalIgnoreCase))
+            .Take(8)
+            .AsEnumerable();
+        return Task.FromResult(results);
+    }
+
+    private async Task OnProductSelected(Product? product)
+    {
+        if (product is null) return;
+        try
+        {
+            await ShoppingListService.AddFromProductAsync(product.Id);
+
+            _searchQuery = string.Empty;
+            if (_autocomplete is not null)
+                await _autocomplete.ResetAsync();
+            await LoadDataAsync();
+            Snackbar.Add($"{product.Name} toegevoegd", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Fout bij toevoegen: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task OpenNewProductDialog()
+    {
+        var parameters = new DialogParameters
+        {
+            ["InitialName"]  = _searchQuery.Trim(),
+            ["Stores"]       = _stores,
+            ["AllProducts"]  = _allProducts
+        };
+
+        var dialog = await DialogService.ShowAsync<ProductDialog>("Nieuw product", parameters);
+        var result = await dialog.Result;
+
+        if (result is { Canceled: false, Data: int productId })
+        {
+            try
+            {
+                await ShoppingListService.AddFromProductAsync(productId);
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add($"Fout bij toevoegen aan boodschappenlijst: {ex.Message}", Severity.Error);
+            }
+
+            _searchQuery = string.Empty;
+            if (_autocomplete is not null)
+                await _autocomplete.ResetAsync();
+            await LoadDataAsync();
+            Snackbar.Add("Product aangemaakt en aan boodschappenlijst toegevoegd", Severity.Success);
+        }
+    }
+
+    private async Task OpenEditDialog(ShoppingListItem item)
+    {
+        var parameters = new DialogParameters
+        {
+            ["Item"]   = item,
+            ["Stores"] = _stores
+        };
+
+        var dialog = await DialogService.ShowAsync<EditListItemDialog>("Item bewerken", parameters);
+        var result = await dialog.Result;
+
+        if (!result!.Canceled)
+        {
+            await LoadDataAsync();
+        }
+    }
+
+    private async Task ToggleCheckAsync(ShoppingListItem item, bool value)
+    {
+        try
+        {
+            await ShoppingListService.CheckItemAsync(item.Id, value);
+            await LoadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Fout bij afvinken: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task DeleteItemAsync(int id)
+    {
+        try
+        {
+            await ShoppingListService.DeleteItemAsync(id);
+            await LoadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Fout bij verwijderen: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task AddWeeklyItemsAsync()
+    {
+        try
+        {
+            var before = _groupedItems.Sum(g => g.Items.Count);
+            await ShoppingListService.AddWeeklyRecurringItemsAsync();
+            await LoadDataAsync();
+            var added = _groupedItems.Sum(g => g.Items.Count) - before;
+            Snackbar.Add(added > 0 ? $"{added} item(s) toegevoegd" : "Alles staat al op de boodschappenlijst",
+                         added > 0 ? Severity.Success : Severity.Info);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Fout bij laden weekboodschappen: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task ClearAllAsync()
+    {
+        var parameters = new DialogParameters<MudMessageBox>
+        {
+            { x => x.Message,     "Weet je zeker dat je alle items van de boodschappenlijst wilt verwijderen?" },
+            { x => x.YesText,     "Verwijderen" },
+            { x => x.CancelText,  "Annuleren" }
+        };
+        var dialog    = await DialogService.ShowAsync<MudMessageBox>("Boodschappenlijst leegmaken", parameters);
+        var result    = await dialog.Result;
+
+        if (result is { Canceled: true }) return;
+
+        try
+        {
+            await ShoppingListService.ClearAllItemsAsync();
+            await LoadDataAsync();
+            Snackbar.Add("Boodschappenlijst geleegd", Severity.Info);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Fout bij verwijderen: {ex.Message}", Severity.Error);
+        }
+    }
+}

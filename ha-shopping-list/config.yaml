@@ -1,0 +1,15 @@
+name: HA Shopping List
+version: "1.0.0"
+slug: ha_shopping_list
+description: Boodschappenlijst app
+url: https://github.com/jelleschut/ha-addons
+image: ghcr.io/jelleschut/ha-shopping-list-{arch}
+arch:
+  - aarch64
+host_network: true
+ports:
+  8080/tcp: 8080
+ports_description:
+  8080/tcp: Web interface
+map:
+  - share:rw

@@ -1,0 +1,201 @@
+@page "/stores"
+@rendermode InteractiveServer
+@inject StoreService StoreService
+@inject IJSRuntime JsRuntime
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@implements IAsyncDisposable
+
+<PageTitle>Winkels</PageTitle>
+
+<MudText Typo="Typo.h5" Class="mb-1">Winkels</MudText>
+<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+    Sleep om de volgorde van je winkelroute aan te passen
+</MudText>
+
+@if (_stores is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    <MudPaper Elevation="1" Class="mb-4">
+        <MudList T="Store" id="store-list" DisablePadding="true">
+            @foreach (var store in _stores)
+            {
+                <MudListItem @key="store.Id">
+                    <div class="d-flex align-center gap-3 w-100">
+                        <MudIcon Icon="@Icons.Material.Filled.DragIndicator"
+                                 Class="drag-handle"
+                                 Color="Color.Tertiary" />
+                        @if (_editingId == store.Id)
+                        {
+                            <MudTextField @bind-Value="_editName"
+                                          Variant="Variant.Outlined"
+                                          Dense="true"
+                                          Class="flex-1"
+                                          @onkeydown="e => OnEditKeyDown(e, store)" />
+                            <MudIconButton Icon="@Icons.Material.Filled.Check"
+                                           Color="Color.Success"
+                                           Size="Size.Small"
+                                           OnClick="() => SaveEditAsync(store)" />
+                            <MudIconButton Icon="@Icons.Material.Filled.Close"
+                                           Size="Size.Small"
+                                           OnClick="CancelEdit" />
+                        }
+                        else
+                        {
+                            <MudText Class="flex-1" Style="font-weight:500">@store.Name</MudText>
+                            <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                                           Size="Size.Small"
+                                           Color="Color.Default"
+                                           OnClick="() => StartEdit(store)" />
+                            <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                           Size="Size.Small"
+                                           Color="Color.Error"
+                                           OnClick="() => DeleteAsync(store)" />
+                        }
+                    </div>
+                </MudListItem>
+            }
+        </MudList>
+    </MudPaper>
+
+    <MudPaper Elevation="1" Class="pa-3">
+        <div class="d-flex gap-2">
+            <MudTextField @bind-Value="_newStoreName"
+                          Placeholder="Nieuwe winkel..."
+                          Variant="Variant.Outlined"
+                          Dense="true"
+                          Class="flex-1"
+                          @onkeydown="OnAddKeyDown" />
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       Disabled="@string.IsNullOrWhiteSpace(_newStoreName)"
+                       OnClick="AddStoreAsync">
+                Toevoegen
+            </MudButton>
+        </div>
+    </MudPaper>
+}
+
+@code {
+    private List<Store>? _stores;
+    private string _newStoreName = string.Empty;
+    private int?   _editingId;
+    private string _editName = string.Empty;
+    private DotNetObjectReference<Stores>? _dotNetRef;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _stores = await StoreService.GetAllOrderedAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Fout bij laden: {ex.Message}", Severity.Error);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _dotNetRef = DotNetObjectReference.Create(this);
+            await JsRuntime.InvokeVoidAsync(JsInterop.InitSortable, JsInterop.ElementIds.StoreList, _dotNetRef);
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnOrderChanged(int oldIndex, int newIndex)
+    {
+        if (_stores is null || oldIndex == newIndex) return;
+        var item = _stores[oldIndex];
+        _stores.RemoveAt(oldIndex);
+        _stores.Insert(newIndex, item);
+        var updates = _stores.Select((s, i) => (s.Id, i + 1)).ToList();
+        try
+        {
+            await StoreService.UpdateDisplayOrderAsync(updates);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Fout bij opslaan volgorde: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task AddStoreAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newStoreName)) return;
+        try
+        {
+            var maxOrder = _stores?.MaxBy(s => s.DisplayOrder)?.DisplayOrder ?? 0;
+            await StoreService.AddAsync(new Store
+            {
+                Name         = _newStoreName.Trim(),
+                DisplayOrder = maxOrder + 1
+            });
+            _newStoreName = string.Empty;
+            _stores = await StoreService.GetAllOrderedAsync();
+            StateHasChanged();
+            await JsRuntime.InvokeVoidAsync(JsInterop.InitSortable, JsInterop.ElementIds.StoreList, _dotNetRef);
+            Snackbar.Add("Winkel toegevoegd", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Fout bij toevoegen: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private void StartEdit(Store store) { _editingId = store.Id; _editName = store.Name; }
+    private void CancelEdit()           { _editingId = null; _editName = string.Empty; }
+
+    private async Task SaveEditAsync(Store store)
+    {
+        if (string.IsNullOrWhiteSpace(_editName)) return;
+        try
+        {
+            store.Name = _editName.Trim();
+            await StoreService.UpdateAsync(store);
+            CancelEdit();
+            Snackbar.Add("Wijziging opgeslagen", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Fout bij opslaan: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task DeleteAsync(Store store)
+    {
+        if (!await DialogService.ConfirmDeleteAsync(store.Name)) return;
+
+        try
+        {
+            await StoreService.DeleteAsync(store.Id);
+            _stores = await StoreService.GetAllOrderedAsync();
+            StateHasChanged();
+            await JsRuntime.InvokeVoidAsync(JsInterop.InitSortable, JsInterop.ElementIds.StoreList, _dotNetRef);
+            Snackbar.Add($"{store.Name} verwijderd", Severity.Info);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Fout bij verwijderen: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task OnAddKeyDown(KeyboardEventArgs e)  { if (e.Key == "Enter") await AddStoreAsync(); }
+    private async Task OnEditKeyDown(KeyboardEventArgs e, Store store)
+    {
+        if (e.Key == "Enter")  await SaveEditAsync(store);
+        if (e.Key == "Escape") CancelEdit();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JsRuntime.InvokeVoidAsync(JsInterop.DestroySortable, JsInterop.ElementIds.StoreList); }
+        catch (Exception ex) when (ex is JSDisconnectedException or JSException or InvalidOperationException) { }
+        _dotNetRef?.Dispose();
+    }
+}
